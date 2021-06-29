@@ -135,7 +135,7 @@ if __name__ == '__main__':
                         action='store_false', default=True, help='Skip sub(captions) of figures.')
     parser.add_argument('--skip-sections', dest='sections',
                         action='store_false', default=True, help='Skip all sections.')
-    parser.add_argument('-r', '--repl', action='append',
+    parser.add_argument('-r', '--repl', action='append', default=[],
                         help=r'Replace within latex source: -r "\system{}=Test" (multiple)')
     parser.add_argument('main.tex', help='Main file of Latex project.')
 
@@ -147,7 +147,8 @@ if __name__ == '__main__':
                               captions=args.captions, sections=args.sections)
     rephraser = PonsTranslatorRephraser()
 
-    for i in range(len(sentences)):
+    i = 0
+    while i < len(sentences):
         sentence = sentences[i]
 
         # sys.stdout.write('\x1b[2J\x1b[H')
@@ -172,12 +173,18 @@ if __name__ == '__main__':
         search = input()
         if search.startswith('/'):
             term = search[1:]
-            print(repr(term))
             for _i, s in enumerate(sentences):
                 if term in s:
                     i = _i
                     break
+        elif search.startswith(':'):
+            try:
+                i = int(search[1:])-1
+            except ValueError:
+                pass
         else:
             i += 1
+
+        print(f'i={i}')
 
     print('***Done***')
