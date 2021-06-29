@@ -185,6 +185,4 @@ if __name__ == '__main__':
         else:
             i += 1
 
-        print(f'i={i}')
-
     print('***Done***')
