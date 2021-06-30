@@ -7,6 +7,9 @@ import os
 import difflib
 import requests
 import argparse
+import deepl
+import threading
+import queue
 
 
 def open_tex(filename):
@@ -56,6 +59,18 @@ class PonsTranslatorRephraser:
         except KeyError:
             print(r.text())
         return text
+
+
+class DeepLRephraser:
+    def __init__(self):
+        pass
+
+    def rephrase(self, text):
+        trans = deepl.translate(source_language="EN",
+                                target_language="DE", text=text)
+        altered = deepl.translate(
+            source_language="DE", target_language="EN", text=trans)
+        return altered
 
 
 def color_diff(diff):
@@ -127,6 +142,23 @@ def get_sentences(main_file, replace=[], abstract=True, captions=True, sections=
     return sentences
 
 
+def p_map(func, data):
+    N = len(data)
+    result = [None] * N
+
+    def wrapper(i):
+        result[i] = func(data[i])
+
+    threads = [threading.Thread(target=wrapper, args=(i,))
+               for i in range(N)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    return result
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--skip-abstract', dest='abstract',
@@ -143,10 +175,50 @@ if __name__ == '__main__':
 
     repl = map(lambda x: x.split('='), args.repl)
 
-    sentences = get_sentences(sys.argv[1], replace=repl, abstract=args.abstract,
-                              captions=args.captions, sections=args.sections)
-    rephraser = PonsTranslatorRephraser()
+    class Rephraser:
+        def __init__(self, *, sentences):
+            self.sentences = sentences
+            self.cache = {}
+            self.prefetch_q = queue.Queue()
+            self.thread = threading.Thread(target=self.__prefetcher)
+            self.__stop = False
+            self.thread.start()
+            self.rephrasers = [
+                DeepLRephraser(),
+                # PonsTranslatorRephraser(),
+            ]
 
+        def __del__(self):
+            self.thread.join()
+            self.prefetch_q.put(None)
+            self.__stop = True
+
+        def get(self, i):
+            if i not in self.cache:
+                sentence = self.sentences[i]
+                if len(self.rephrasers) == 1:
+                    # No thread
+                    self.cache[i] = [self.rephrasers[0].rephrase(sentence)]
+                else:
+                    self.cache[i] = p_map(
+                        lambda x: x.rephrase(sentence), self.rephrasers)
+            return self.cache[i]
+
+        def prefetch(self, i):
+            self.prefetch_q.put(i)
+
+        def __prefetcher(self):
+            while not self.__stop:
+                i = self.prefetch_q.get()
+                try:
+                    self.get(i)
+                except Exception as e:
+                    print(e)
+                    continue
+
+    sentences = get_sentences(
+        sys.argv[1], replace=repl, abstract=args.abstract, captions=args.captions, sections=args.sections)
+    rephraser = Rephraser(sentences=sentences)
     i = 0
     while i < len(sentences):
         sentence = sentences[i]
@@ -158,9 +230,11 @@ if __name__ == '__main__':
         print(sentence)
         print()
         print('***Altered***')
-        altered = rephraser.rephrase(sentence)
-        print(altered)
-        print()
+
+        for altered in rephraser.get(i):
+            print(altered)
+            print()
+        rephraser.prefetch(i+1)
 
         # print('***Diff***')
         # d = difflib.Differ()
