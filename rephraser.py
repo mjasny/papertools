@@ -96,6 +96,13 @@ def get_sentences(main_file, replace=[], abstract=True, captions=True, sections=
 
     soup = resolve_includes(open_tex(main_file))
 
+    repl = {
+        '``': '"',
+        '\'\'': '"',
+        r'\%': '%',
+    }
+    repl.update(replace)
+
     s = ''
     if abstract:
         for tex_code in (soup.find('abstract') or []):
@@ -118,26 +125,36 @@ def get_sentences(main_file, replace=[], abstract=True, captions=True, sections=
             if tex_code.category == TC.Comment:
                 continue
             if tex_code.category is None:
+                if tex_code.name in ['emph', 'textit', 'textbf', '$']:
+                    s += f' {" ".join(tex_code.text)}'
+                # elif tex_code.name == 'figure':
+                #     pass
+                elif tex_code.name in ['ref', 'Cref', 'cref']:
+                    s += f' [{tex_code.text[0]}]'
+                elif tex_code.name == 'cite':
+                    # only take first citation
+                    citation = tex_code.text[0].split(',')[0]
+                    s += f' [{citation}]'
+                elif str(tex_code.expr) in repl:
+                    s += f' {repl[str(tex_code.expr)]}'
+                else:
+                    print(tex_code, tex_code.expr,
+                          tex_code.name, tex_code.text)
                 continue
 
             s += str(tex_code).rstrip()
 
-    repl = [
-        ('``', '"'),
-        ('\'\'', '"'),
-        (r'\%', '%'),
-    ]
-    repl.extend(replace)
-    for m, r in repl:
+    for m, r in repl.items():
         s = s.replace(m, r)
     s = s.strip()
+    s = re.sub(r'\s+', ' ', s)
 
     if not s:
         return []
 
-    print(s)
+    # print(s)
 
-    SPLIT_SENTENCE = r'(?<=[\.:;])\s+(?=[A-Z\()])'
+    SPLIT_SENTENCE = r'(?<=[\.:;])\s+(?=[A-Z\(\[])'
     sentences = re.split(SPLIT_SENTENCE, s)
     return sentences
 
